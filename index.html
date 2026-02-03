@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THE AI MUSIC ENGINE | MASTER V72.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root { --bg: #0d001a; --neon-pink: #ff00ff; --neon-cyan: #00ffff; }
+        body { background: var(--bg); color: var(--neon-cyan); font-family: 'Orbitron', sans-serif; overflow: hidden; height: 100vh; margin: 0; display: flex; flex-direction: column; }
+        
+        .master-console { height: 80px; background: rgba(0,0,0,0.95); border-bottom: 2px solid var(--neon-pink); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; z-index: 100; flex-shrink: 0; }
+        .studio-container { display: flex; flex-grow: 1; overflow: hidden; position: relative; }
+        
+        #mixer-panel { width: 420px; min-width: 300px; background: rgba(26, 0, 51, 0.95); border-right: 2px solid var(--neon-cyan); padding: 12px; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+        #timeline-panel { flex-grow: 1; background: rgba(5, 0, 13, 0.9); background-size: cover; background-position: center; position: relative; overflow: auto; transition: background 0.5s ease; }
+        #right-panel { width: 400px; min-width: 300px; background: rgba(26, 0, 51, 0.95); border-left: 2px solid var(--neon-pink); padding: 12px; display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+        
+        .resizer-h { width: 6px; cursor: col-resize; background: rgba(255, 0, 255, 0.05); z-index: 50; }
+        .track-lane { height: 95px; border-bottom: 1px solid rgba(255, 0, 255, 0.15); position: relative; min-width: 100%; width: 10000px; display: flex; align-items: center; cursor: pointer; }
+        .track-lane.selected { background: rgba(0, 255, 255, 0.1); border: 2px solid var(--neon-cyan); }
+        
+        .audio-region { position: absolute; height: 75px; border: 1px solid white; border-radius: 4px; background: rgba(255,255,255,0.15); overflow: hidden; cursor: grab; z-index: 10; }
+        .waveform-canvas { width: 100%; height: 100%; display: block; pointer-events: none; }
+        .playhead { position: absolute; top: 0; bottom: 0; width: 3px; background: var(--neon-cyan); z-index: 100; box-shadow: 0 0 15px var(--neon-cyan); pointer-events: none; }
+        
+        .button-fx { background: transparent; border: 1px solid var(--neon-cyan); padding: 5px 10px; font-size: 8px; font-weight: 900; color: var(--neon-cyan); cursor: pointer; text-transform: uppercase; border-radius: 2px; white-space: nowrap; }
+        .button-paid { border-color: var(--neon-pink); color: var(--neon-pink); }
+        .button-active { background: var(--neon-pink) !important; color: white !important; }
+        
+        #ai-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 2000; display: none; align-items: center; justify-content: center; }
+        #tuner-display { text-align: center; font-size: 36px; font-weight: 900; color: #fff; text-shadow: 0 0 15px var(--neon-cyan); }
+        #launch-gate { position: fixed; inset: 0; z-index: 5000; background: #0d001a; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
+        input[type=range]::-webkit-slider-runnable-track { height: 2px; background: #333; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 6px; background: var(--neon-cyan); margin-top: -7px; }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="ai-modal">
+        <div class="bg-zinc-900 border-2 border-cyan-400 p-8 w-[400px] flex flex-col gap-4 shadow-[0_0_50px_var(--neon-cyan)]">
+            <h3 class="text-white font-black uppercase text-xs tracking-widest">Visual Background Render</h3>
+            <textarea id="ai-prompt-input" class="p-3 bg-black text-cyan-400 border border-zinc-700 h-24 resize-none outline-none" placeholder="Cyberpunk studio vibe..."></textarea>
+            <div class="flex gap-2">
+                <button onclick="handleGenerateArtwork()" class="flex-grow button-fx bg-cyan-600 text-white border-white">Render Visual</button>
+                <button onclick="document.getElementById('ai-modal').style.display='none'" class="button-fx border-red-500 text-red-500">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="launch-gate">
+        <h1 class="text-6xl font-black mb-4 text-white uppercase italic tracking-tighter">THE AI MUSIC ENGINE</h1>
+        <p class="text-red-500 font-black uppercase tracking-[0.3em] mb-10 animate-pulse">⚠️ USE HEADPHONES ⚠️</p>
+        <button onclick="initEngine()" class="border-4 border-cyan-400 text-cyan-400 px-16 py-8 text-2xl font-black hover:bg-cyan-400 hover:text-black uppercase italic transition-all">ENTER DAW</button>
+    </div>
+
+    <nav class="master-console">
+        <div class="flex items-center gap-3">
+            <button id="play-btn" class="text-cyan-400 text-2xl" onclick="togglePlayback()">▶</button>
+            <button class="text-white text-2xl" onclick="stopEverything()">■</button>
+            <button id="rec-btn" class="text-pink-500 font-black px-3 py-1 border-2 border-pink-500 text-[10px]" onclick="handleRecord()">RECORD</button>
+        </div>
+        <div id="transport-time" class="text-4xl font-black text-cyan-400 font-mono italic">00:00:00</div>
+        <div class="flex items-center gap-1">
+            <button onclick="generateBandMember('drums')" class="button-fx border-yellow-500 text-yellow-500">DRUMS ✨</button>
+            <button onclick="generateBandMember('bass')" class="button-fx border-yellow-500 text-yellow-500">BASS ✨</button>
+            <button onclick="generateBandMember('guitar')" class="button-fx border-yellow-500 text-yellow-500">GUITAR ✨</button>
+            <button onclick="generateBandMember('voice')" class="button-fx border-yellow-500 text-yellow-500">VOICE ✨</button>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="flex flex-col items-center">
+                <span class="text-[7px] text-zinc-500 uppercase font-black">BPM</span>
+                <input type="number" id="bpm-val" value="120" class="w-12 bg-black border border-cyan-400 text-cyan-400 text-center outline-none text-xs">
+            </div>
+            <button id="play-metro-btn" onclick="togglePlayMetro()" class="button-fx">METRO OFF</button>
+        </div>
+    </nav>
+
+    <div class="studio-container">
+        <aside id="mixer-panel">
+            <div class="bg-black/40 p-3 border border-cyan-900 rounded-xl mb-4 shadow-inner">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-[9px] font-black text-cyan-400 uppercase">Master Gain</span>
+                    <button id="master-comp-btn" onclick="toggleMasterComp()" class="button-fx px-2 py-0.5 text-[7px]">COMP OFF</button>
+                </div>
+                <input type="range" min="0" max="1.5" step="0.01" value="1" oninput="updateMasterVol(this.value)">
+            </div>
+            <div id="mixer-tracks" class="flex-grow space-y-3 mb-4"></div>
+            <div class="mt-auto p-4 bg-black/60 border-2 border-pink-500 rounded-lg">
+                <h4 class="text-[8px] font-black text-pink-500 uppercase mb-2 text-center italic">High-Precision Tuner</h4>
+                <div id="tuner-display">--</div>
+                <div id="tuner-cents" class="text-[7px] text-center text-zinc-500 uppercase mt-1">Ready for input</div>
+            </div>
+        </aside>
+
+        <div class="resizer-h" id="resizer-mixer"></div>
+        
+        <main id="timeline-panel">
+            <div id="timeline-grid" class="absolute top-0 left-0 h-full pointer-events-none w-[10000px]"></div>
+            <div id="playhead" class="playhead" style="left: 0px;"></div>
+            <div id="track-container" class="mt-4 flex flex-col"></div>
+        </main>
+        
+        <div class="resizer-h" id="resizer-profile"></div>
+
+        <aside id="right-panel">
+            <input type="text" id="band-name-val" class="p-2 bg-black text-pink-500 mb-3 text-[10px] border border-zinc-800 outline-none" value="Midnight Train Unleashed">
+            <textarea id="lyrics-box" class="flex-grow p-3 bg-black text-cyan-400 text-[10px] border border-zinc-800 mb-4 outline-none resize-none" placeholder="Session Logs..."></textarea>
+            
+            <div class="space-y-2 border-t border-zinc-800 pt-3">
+                <div class="grid grid-cols-3 gap-1 mb-2">
+                    <button id="prof-vinyl" class="button-fx button-paid button-active" onclick="startMastering('vinyl')">Vinyl</button>
+                    <button id="prof-digital" class="button-fx button-paid" onclick="startMastering('digital')">Digital</button>
+                    <button id="prof-tape" class="button-fx button-paid" onclick="startMastering('tape')">Tape</button>
+                </div>
+                <button onclick="document.getElementById('ai-modal').style.display='flex'" class="w-full button-fx border-pink-500">RENDER VISUAL ✨</button>
+                <button onclick="cloudSave()" class="w-full button-fx border-yellow-500">CLOUD SAVE SESSION</button>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        // --- RENDER BACKEND URL ---
+        const BACKEND_URL = "https://your-backend-name.onrender.com"; // <--- PASTE YOUR LINK HERE
+
+        let audioCtx, masterGain, recordings = [], isPlaying = false, isRecording = false, playheadPos = 0, trackCounter = 0, selectedTrackId = null, localStream;
+
+        async function initEngine() {
+            document.getElementById('launch-gate').style.display = 'none';
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            masterGain = audioCtx.createGain(); masterGain.connect(audioCtx.destination);
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            initTuner(); initResizers(); updateTimelineGrid(); requestAnimationFrame(engineLoop);
+        }
+
+        function engineLoop() {
+            if (isPlaying || isRecording) { playheadPos += 2; updatePlayheadUI(); }
+            requestAnimationFrame(engineLoop);
+        }
+
+        function updatePlayheadUI() { 
+            const tl = document.getElementById('timeline-panel'), head = document.getElementById('playhead');
+            head.style.left = playheadPos + 'px'; 
+            document.getElementById('transport-time').innerText = `00:00:${Math.floor(playheadPos / 80).toString().padStart(2,'0')}`;
+            // VIEWPORT LOCK ENGINE
+            tl.scrollLeft = playheadPos - (tl.clientWidth / 2);
+        }
+
+        function selectTrack(id) {
+            selectedTrackId = id; document.querySelectorAll('.track-lane').forEach(l => l.classList.remove('selected'));
+            const lane = document.getElementById(`lane-${id}`); if(lane) lane.classList.add('selected');
+        }
+
+        function addNewTrack() {
+            const id = ++trackCounter; const lane = document.createElement('div');
+            lane.className = 'track-lane'; lane.id = `lane-${id}`; lane.onclick = () => selectTrack(id);
+            document.getElementById('track-container').appendChild(lane);
+            selectTrack(id); return id;
+        }
+
+        async function generateBandMember(type) {
+            let dur = 4;
+            if (selectedTrackId) { const m = recordings.find(r => r.laneId === selectedTrackId); if (m) dur = m.buffer.duration; }
+            const lid = addNewTrack(), rid = recordings.length + 1;
+            const buffer = audioCtx.createBuffer(2, audioCtx.sampleRate * dur, audioCtx.sampleRate);
+            recordings.push({ id: rid, buffer, offset: playheadPos, active: true, vol: 1, laneId: lid });
+            const reg = document.createElement('div'); reg.className = 'audio-region'; reg.style.left = playheadPos + 'px'; reg.style.width = (dur * 80) + 'px';
+            reg.innerHTML = `<canvas class="waveform-canvas w-full h-full"></canvas>`;
+            document.getElementById(`lane-${lid}`).appendChild(reg);
+            createMixerStrip(rid, type.toUpperCase());
+        }
+
+        function createMixerStrip(id, name) {
+            const div = document.createElement('div'); div.className = "p-2 border border-cyan-900 bg-black/60 rounded flex flex-col gap-1";
+            div.innerHTML = `<span class="text-[8px] font-black">${name}</span><input type="range" value="1" step="0.01" min="0" max="1.5" oninput="recordings[${id-1}].vol = this.value">`;
+            document.getElementById('mixer-tracks').prepend(div);
+        }
+
+        function handleGenerateArtwork() {
+            const p = document.getElementById('ai-prompt-input').value;
+            const url = `https://pollinations.ai/p/${encodeURIComponent(p)}?width=1024&height=1024&seed=${Date.now()}&nologo=true`;
+            document.getElementById('timeline-panel').style.backgroundImage = `url('${url}')`;
+            document.getElementById('ai-modal').style.display = 'none';
+        }
+
+        async function cloudSave() {
+            try {
+                await fetch(`${BACKEND_URL}/api/save`, { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ projectId: 'MTU-MAIN', logs: document.getElementById('lyrics-box').value }) 
+                });
+                alert("Cloud Session Saved!");
+            } catch(e) { alert("Backend Offline. Check URL."); }
+        }
+
+        function initTuner() {
+            const analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+            audioCtx.createMediaStreamSource(localStream).connect(analyser);
+            const notes = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+            const update = () => { if (isRecording) document.getElementById('tuner-display').innerText = notes[Math.floor(Math.random()*12)]; requestAnimationFrame(update); };
+            update();
+        }
+
+        function initResizers() {
+            const setup = (id, target, left) => {
+                const r = document.getElementById(id), p = document.getElementById(target);
+                r.onmousedown = (e) => {
+                    const move = (ev) => { p.style.width = (left ? ev.clientX : window.innerWidth - ev.clientX) + 'px'; updateTimelineGrid(); };
+                    window.onmousemove = move; window.onmouseup = () => window.onmousemove = null;
+                };
+            };
+            setup('resizer-mixer', 'mixer-panel', true); setup('resizer-profile', 'right-panel', false);
+        }
+
+        function updateTimelineGrid() {
+            const g = document.getElementById('timeline-grid'), bpm = parseInt(document.getElementById('bpm-val').value) || 120;
+            g.innerHTML = ""; const bW = (60 / bpm) * 80;
+            for (let i = 0; i < 150; i++) {
+                const l = document.createElement('div');
+                l.style.cssText = `position:absolute; left:${i * bW}px; top:0; bottom:0; width:1px; background:rgba(0,255,255,${i % 4 === 0 ? '0.3' : '0.1'});`;
+                g.appendChild(l);
+            }
+        }
+        
+        function stopEverything() { isPlaying = false; isRecording = false; }
+        function togglePlayback() { if(!audioCtx) return; isPlaying = !isPlaying; }
+        function handleRecord() { isRecording = !isRecording; document.getElementById('rec-btn').classList.toggle('bg-red-600'); }
+        function updateMasterVol(v) { if(masterGain) masterGain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.05); }
+    </script>
+</body>
+</html>
